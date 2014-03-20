@@ -9,8 +9,16 @@
 #define MAX_CMDS 500
 #define MAX_CHARS 128
 #define COLOR_MAX 255
+#define SPH_REP 20.0
 
 //Macros
+#define apply_trans(t) \
+    Mat4 *new_trans = mat4_multiply(t, trans_mat); \
+    mat4_delete(t); \
+    mat4_delete(trans_mat); \
+    trans_mat = new_trans;
+#define print_edge() mat4_print("Edge Matrix", edge_mat);
+#define print_trans() mat4_print("Tranformation Matrix", trans_mat);
 #define swap(j, k, temp) temp = j; j = k; k = temp;
 
 //Input and output files
@@ -30,7 +38,7 @@ Mat4 *trans_mat;
 // Variable initialization
 void init() {
     //Pixel buffer
-    clear_pixels();
+    clear_buffer();
 
     //Matrices
     edge_mat = mat4_create(0);
@@ -38,13 +46,13 @@ void init() {
 }
 
 //Cleanup
-void clean() {
+void free_ptrs() {
     mat4_delete(edge_mat);
     mat4_delete(trans_mat);
 }
 
 //Clear the buffer
-void clear_pixels() {
+void clear_buffer() {
     //Set default color and populate pixels with the color
     curr_color[0] = 0; curr_color[1] = 0; curr_color[2] = 0;
 
@@ -67,28 +75,54 @@ void write_buffer() {
             fprintf(o_file, "%d %d %d ", image_buffer[j][k][0], image_buffer[j][k][1], image_buffer[j][k][2]);
 }
 
-int map_pt(double x, double max, double min, int width) {
-    int new_x;
-    new_x = ( (x - min) / (max - min) ) * width;
-
-    return new_x;
-}
-
-// Most basic rendering: render all lines in the edge matrix
-void render_pll() {
+//Convert from world coords in edge matrix to pixels.
+void convert_wld() {
     int col, x0, x1, y0, y1;
-    curr_color[0] = 255;
-    curr_color[1] = 255;
-    curr_color[2] = 255;
+
+    identity();
+    t_scale(p_width / (sx_max - sx_min), p_height / (sy_max - sy_min), 1.0);
+    t_move((p_width * -sx_min) / (sx_max - sx_min), (p_height * -sy_min) / (sy_max - sy_min), 1.0);
+    transform();
 
     for (col = 0; col < edge_mat->cols; col += 2) {
-        x0 = map_pt(mat4_get(edge_mat, 0, col), sx_max, sx_min, p_width);
-        x1 = map_pt(mat4_get(edge_mat, 0, col + 1), sx_max, sx_min, p_width);
-        y0 = map_pt(mat4_get(edge_mat, 1, col), sy_max, sy_min, p_height);
-        y1 = map_pt(mat4_get(edge_mat, 1, col + 1), sy_max, sy_min, p_height);
+        x0 = mat4_get(edge_mat, 0, col);
+        x1 = mat4_get(edge_mat, 0, col + 1);
+        y0 = mat4_get(edge_mat, 1, col);
+        y1 = mat4_get(edge_mat, 1, col + 1);
 
         draw_line(x0, y0, x1, y1);
     }
+}
+
+// Most basic rendering: render all lines in the edge matrix
+void render_pll(char color[3]) {
+    curr_color[0] = color[0]; curr_color[1] = color[1]; curr_color[2] = color[2];
+
+    convert_wld();
+}
+
+//Rendering with perspective
+void render_eye(double ex, double ey, double ez, char color[3]) {
+    int col;
+    double x0, x1, y0, y1;
+    Mat4 *temp = mat4_copy(edge_mat);
+    curr_color[0] = color[0]; curr_color[1] = color[1]; curr_color[2] = color[2];
+
+    for (col = 0; col < edge_mat->cols; col += 2) {
+        x0 = ex + (ex - mat4_get(edge_mat, 0, col)) * -ez / (ez - mat4_get(edge_mat, 2, col));
+        x1 = ex + (ex - mat4_get(edge_mat, 0, col + 1)) * -ez / (ez - mat4_get(edge_mat, 2, col + 1));
+        y0 = ey + (ey - mat4_get(edge_mat, 1, col)) * ez / (ez - mat4_get(edge_mat, 2, col));
+        y1 = ey + (ey - mat4_get(edge_mat, 1, col + 1)) * ez / (ez - mat4_get(edge_mat, 2, col + 1));
+    
+        mat4_set(edge_mat, 0, col, x0);
+        mat4_set(edge_mat, 0, col + 1, x1);
+        mat4_set(edge_mat, 1, col, y0);
+        mat4_set(edge_mat, 1, col + 1, y1);
+    }
+
+    convert_wld();
+    mat4_delete(edge_mat);
+    edge_mat = temp;
 }
 
 // Plot point
@@ -131,10 +165,101 @@ void draw_line(int x0, int y0, int x1, int y1) {
 }
 
 // Draw a sphere
-void draw_sphere(double rad, double x, double y, double z) {
+void draw_sphere(double rad, double sx, double sy, double sz) {
+    double phi, theta, r, x, z;
+
+    for (phi = 0; phi < M_PI; phi += M_PI / SPH_REP) {
+        r = rad * sin(phi);
+        z = rad * cos(phi);
+
+        for (theta = 0; theta < 2.0 * M_PI; theta += M_PI / SPH_REP) {
+            double p1[4] = {r * cos(theta), r * sin(theta), z, 1.0};
+            theta += M_PI / SPH_REP;
+            double p2[4] = {r * cos(theta), r * sin(theta), z, 1.0};
+            theta -= M_PI / SPH_REP;
+
+            mat4_add_column(edge_mat, p1);
+            mat4_add_column(edge_mat, p2);
+        }
+    }
+
+    for (theta = 0; theta < 2.0 * M_PI; theta += M_PI / SPH_REP) {
+        x = cos(theta);
+
+        for (phi = 0; phi < M_PI; phi += M_PI / SPH_REP) {
+            r = rad * sin(phi);
+
+            double p1[4] = {r * x, r * sin(theta), rad * cos(phi), 1.0};
+            phi += M_PI / SPH_REP;
+            r = rad * sin(phi);
+            double p2[4] = {r * x, r * sin(theta), rad * cos(phi), 1.0};
+            phi -= M_PI / SPH_REP;
+
+            mat4_add_column(edge_mat, p1);
+            mat4_add_column(edge_mat, p2);
+        }
+    }
 }
 
-//Removes whitespace at the end of strings
+void identity() {
+    mat4_delete(trans_mat);
+    trans_mat = mat4_create_identity();
+}
+
+void t_move(double x, double y, double z) {
+    Mat4 *mv = mat4_create_identity();
+    mat4_set(mv, 0, 3, x);
+    mat4_set(mv, 1, 3, y);
+    mat4_set(mv, 2, 3, z);
+
+    apply_trans(mv);
+}
+
+void t_scale(double sx, double sy, double sz) {
+    Mat4 *sc = mat4_create_identity();
+    mat4_set(sc, 0, 0, sx);
+    mat4_set(sc, 1, 1, sy);
+    mat4_set(sc, 2, 2, sz);
+
+    apply_trans(sc);
+}
+
+void t_rotate_x(double rads) {
+    Mat4 *rt = mat4_create_identity();
+    mat4_set(rt, 1, 1, cos(rads));
+    mat4_set(rt, 1, 2, -sin(rads));
+    mat4_set(rt, 2, 1, sin(rads));
+    mat4_set(rt, 2, 2, cos(rads));
+
+    apply_trans(rt);
+}
+
+void t_rotate_y(double rads) {
+    Mat4 *rt = mat4_create_identity();
+    mat4_set(rt, 0, 0, cos(rads));
+    mat4_set(rt, 0, 2, sin(rads));
+    mat4_set(rt, 2, 0, -sin(rads));
+    mat4_set(rt, 2, 2, cos(rads));
+
+    apply_trans(rt);
+}
+
+void t_rotate_z(double rads) {
+    Mat4 *rt = mat4_create_identity();
+    mat4_set(rt, 0, 0, cos(rads));
+    mat4_set(rt, 0, 1, -sin(rads));
+    mat4_set(rt, 1, 0, sin(rads));
+    mat4_set(rt, 1, 1, cos(rads));
+
+    apply_trans(rt);
+}
+
+void transform() {
+    Mat4 *new_edge = mat4_multiply(trans_mat, edge_mat);
+    mat4_delete(edge_mat);
+    edge_mat = new_edge;
+}
+
 //From stack overflow
 void rtrim(char *s) {
     char* back = s + strlen(s);
@@ -189,87 +314,46 @@ void run() {
             mat4_add_column(edge_mat, col2);
         }
         else if (strcmp(*line, "sphere") == 0) {
+            double input[4];
+            read_nums(input, line);
 
+            draw_sphere(input[0], input[1], input[2], input[3]);
         }
         else if (strcmp(*line, "identity") == 0) {
-            mat4_delete(trans_mat);
-            trans_mat = mat4_create_identity();
+            identity();
         }
         else if (strcmp(*line, "move") == 0) {
             double move[3];
             read_nums(move, line);
 
-            Mat4 *mv = mat4_create_identity();
-            mat4_set(mv, 0, 3, move[0]);
-            mat4_set(mv, 1, 3, move[1]);
-            mat4_set(mv, 2, 3, move[2]);
-
-            Mat4 *new_trans = mat4_multiply(mv, trans_mat);
-            mat4_delete(mv);
-            mat4_delete(trans_mat);
-            trans_mat = new_trans;
+            t_move(move[0], move[1], move[2]);
         }
         else if (strcmp(*line, "scale") == 0) {
             double scale[3];
             read_nums(scale, line);
 
-            Mat4 *sc = mat4_create_identity();
-            mat4_set(sc, 0, 0, scale[0]);
-            mat4_set(sc, 1, 1, scale[1]);
-            mat4_set(sc, 2, 2, scale[2]);
-
-            Mat4 *new_trans = mat4_multiply(sc, trans_mat);
-            mat4_delete(sc);
-            mat4_delete(trans_mat);
-            trans_mat = new_trans;
+            t_scale(scale[0], scale[1], scale[2]);
         }
         else if (strcmp(*line, "rotate-x") == 0) {
             double rotate[1], rads;
             read_nums(rotate, line);
             rads = rotate[0] * M_PI / 180.0;
 
-            Mat4 *rt = mat4_create_identity();
-            mat4_set(rt, 1, 1, cos(rads));
-            mat4_set(rt, 1, 2, -sin(rads));
-            mat4_set(rt, 2, 1, sin(rads));
-            mat4_set(rt, 2, 2, cos(rads));
-
-            Mat4 *new_trans = mat4_multiply(rt, trans_mat);
-            mat4_delete(rt);
-            mat4_delete(trans_mat);
-            trans_mat = new_trans;
+            t_rotate_x(rads);
         }
         else if (strcmp(*line, "rotate-y") == 0) {
             double rotate[1], rads;
             read_nums(rotate, line);
             rads = rotate[0] * M_PI / 180.0;
 
-            Mat4 *rt = mat4_create_identity();
-            mat4_set(rt, 0, 0, cos(rads));
-            mat4_set(rt, 0, 2, sin(rads));
-            mat4_set(rt, 2, 0, -sin(rads));
-            mat4_set(rt, 2, 2, cos(rads));
-
-            Mat4 *new_trans = mat4_multiply(rt, trans_mat);
-            mat4_delete(rt);
-            mat4_delete(trans_mat);
-            trans_mat = new_trans;
+            t_rotate_y(rads);
         }
         else if (strcmp(*line, "rotate-z") == 0) {
             double rotate[1], rads;
             read_nums(rotate, line);
             rads = rotate[0] * M_PI / 180.0;
 
-            Mat4 *rt = mat4_create_identity();
-            mat4_set(rt, 0, 0, cos(rads));
-            mat4_set(rt, 0, 1, -sin(rads));
-            mat4_set(rt, 1, 0, sin(rads));
-            mat4_set(rt, 1, 1, cos(rads));
-
-            Mat4 *new_trans = mat4_multiply(rt, trans_mat);
-            mat4_delete(rt);
-            mat4_delete(trans_mat);
-            trans_mat = new_trans;
+            t_rotate_z(rads);
         }
         else if (strcmp(*line, "screen") == 0) {
             double bounds[4];
@@ -288,19 +372,34 @@ void run() {
             p_height = dims[1];
         }
         else if (strcmp(*line, "transform") == 0) {
-            Mat4 *new_edge = mat4_multiply(trans_mat, edge_mat);
-            mat4_delete(edge_mat);
-            edge_mat = new_edge;
+            transform();
         }
         else if (strcmp(*line, "render-parallel") == 0) {
-            render_pll();
+            char color[3] = {255, 255, 255};
+            render_pll(color);
+        }
+        else if (strcmp(*line, "render-perspective-cyclops") == 0) {
+            double eye[3];
+            char color[3] = {255, 255, 255};
+            read_nums(eye, line);
+
+            render_eye(eye[0], eye[1], eye[2], color);
+        }
+        else if (strcmp(*line, "render-perspective-stereo") == 0) {
+            double eyes[6];
+            char c1[3] = {255, 0, 0};
+            char c2[3] = {0, 200, 200};
+            read_nums(eyes, line);
+
+            render_eye(eyes[0], eyes[1], eyes[2], c1);
+            render_eye(eyes[3], eyes[4], eyes[5], c2);
         }
         else if (strcmp(*line, "clear-edges") == 0) {
             mat4_delete(edge_mat);
             edge_mat = mat4_create(0);
         }
         else if (strcmp(*line, "clear-pixels") == 0) {
-            clear_pixels();
+            clear_buffer();
         }
         else if (strcmp(*line, "file") == 0) {
             if ((o_file = fopen(line[1], "ab")) == NULL) {
@@ -311,7 +410,7 @@ void run() {
         else if (strcmp(*line, "end") == 0) {
             write_headers();
             write_buffer();
-            clean();
+            free_ptrs();
             break;
         }
     }

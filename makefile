@@ -1,4 +1,4 @@
-CC = gcc -Wall
+CC = gcc
 
 all: mat4.o parse_util.o proj.o
 	$(CC) mat4.o parse_util.o proj.o -o proj

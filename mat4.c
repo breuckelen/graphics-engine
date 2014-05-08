@@ -169,4 +169,13 @@ Mat4 *mat4_multiply(Mat4 *m1, Mat4 *m2) {
 }
 
 
+//Combines first and second matrices into the first
+void mat4_combine(Mat4 *m1, Mat4 *m2) {
+    int col;
 
+    for (col = 0; col < m2->cols; col++) {
+        double new_col[4] = {mat4_get(m2, 0, col), mat4_get(m2, 1, col), mat4_get(m2, 2, col), mat4_get(m2, 3, col)};
+
+        mat4_add_column(m1, new_col);
+    }
+}

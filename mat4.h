@@ -18,5 +18,4 @@ Mat4 *mat4_multiply(Mat4 *m1, Mat4 *m2);
 double mat4_get(Mat4 *matrix, int row, int col);
 int mat4_columns(Mat4 *m);
 void mat4_print(char *s, Mat4 *matrix);
-
-
+void mat4_combine(Mat4 *m1, Mat4 *m2);

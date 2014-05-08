@@ -1,0 +1,6 @@
+- Use SDL to render the image instead of ppm files
+- Add animation capability
+- Find out why the Y rotation is negated
+- Find out why the dot product comes out positive
+- Find out why the sphere shows the stem
+- Make apply_trans into a function

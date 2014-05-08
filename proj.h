@@ -23,9 +23,12 @@
 
 //Primary functions
 int main(int argc, char *argv[]);
-void run();
 void init();
+void run();
+void cleanup();
 void free_ptrs();
+void set_screen(double bounds[]);
+void set_pixels(double dims[]);
 void clear_buffer();
 void write_headers();
 void write_buffer();
@@ -34,6 +37,8 @@ void write_buffer();
 void convert_wld();
 void render_pll(char color[3]);
 void render_eye(double ex, double ey, double ez, char color[3]);
+void render_perspective_cyclops(double eye[]);
+void render_perspective_stereo(double eyes[]);
 
 //Math functions
 void cross_product(double u[3], double v[3], double r[]);
@@ -44,6 +49,7 @@ void plot(int x, int y);
 void draw_line(int x0, int y0, int x1, int y1);
 
 //Drawing functions for specific shapes
+void add_line(double points[]);
 void add_box(double sx, double sy, double sz, double ry, double rx, double rz, double mx, double my, double mz);
 void add_sphere(double sx, double sy, double sz, double rx, double ry, double rz, double mx, double my, double mz);
 

@@ -30,7 +30,6 @@ Mat4 *new_m;
 
 // Main
 int main(int argc, char *argv[]) {
-    //Set i_file
     if ((i_file = fopen(argv[1], "r")) == NULL) {
         perror("Could not open input file\n");
         exit(1);
@@ -38,9 +37,16 @@ int main(int argc, char *argv[]) {
 
     init();
     run();
+    cleanup();
 }
 
-// Run commands from input file
+//Variable initialization
+void init() {
+    triangle_mat = mat4_create(0);
+    trans_mat = mat4_create_identity();
+}
+
+//Run commands from input file
 void run() {
     int n, i, j, k;
     char data[MAX_CMDS][MAX_CHARS],
@@ -54,11 +60,7 @@ void run() {
             double points[6];
             read_nums(points, line);
 
-            double col1[4] = {points[0], points[1], points[2], 1.0};
-            double col2[4] = {points[3], points[4], points[5], 1.0};
-
-            mat4_add_column(triangle_mat, col1);
-            mat4_add_column(triangle_mat, col2);
+            add_line(points);
         }
         else if (strcmp(*line, "box-t") == 0) {
             double input[9];
@@ -112,29 +114,13 @@ void run() {
             double bounds[4];
             read_nums(bounds, line);
 
-            sx_min = bounds[0];
-            sy_min = bounds[1];
-            sx_max = bounds[2];
-            sy_max = bounds[3];
+            set_screen(bounds);
         }
         else if (strcmp(*line, "pixels") == 0) {
             double dims[2];
             read_nums(dims, line);
 
-            p_width = dims[0];
-            p_height = dims[1];
-
-            image_buffer = (unsigned char ***)calloc(p_height, sizeof(char **));
-            int i, j;
-            for (i = 0; i < p_width; i++) {
-                image_buffer[i] = (unsigned char **)calloc(p_width, sizeof(char *));
-
-                for (j = 0; j < p_width; j++) {
-                    image_buffer[i][j] = (unsigned char *)calloc(3, sizeof(char));
-                }
-            }
-
-            clear_buffer();
+            set_pixels(dims);
         }
         else if (strcmp(*line, "transform") == 0) {
             transform();
@@ -145,19 +131,15 @@ void run() {
         }
         else if (strcmp(*line, "render-perspective-cyclops") == 0) {
             double eye[3];
-            char color[3] = {255, 255, 255};
             read_nums(eye, line);
 
-            render_eye(eye[0], eye[1], eye[2], color);
+            render_perspective_cyclops(eye);
         }
         else if (strcmp(*line, "render-perspective-stereo") == 0) {
             double eyes[6];
-            char c1[3] = {255, 0, 0};
-            char c2[3] = {0, 200, 200};
             read_nums(eyes, line);
 
-            render_eye(eyes[0], eyes[1], eyes[2], c1);
-            render_eye(eyes[3], eyes[4], eyes[5], c2);
+            render_perspective_stereo(eyes);
         }
         else if (strcmp(*line, "clear-triangles") == 0) {
             mat4_delete(triangle_mat);
@@ -173,26 +155,49 @@ void run() {
             }
         }
         else if (strcmp(*line, "end") == 0) {
-            write_headers();
-            write_buffer();
-            free_ptrs();
             break;
         }
     }
 }
 
-// Variable initialization
-void init() {
-    //Matrices
-    triangle_mat = mat4_create(0);
-    trans_mat = mat4_create_identity();
+//Cleanup
+void cleanup() {
+    write_headers();
+    write_buffer();
+    free_ptrs();
 }
 
-//Cleanup
+//Garbage collection
 void free_ptrs() {
     mat4_delete(triangle_mat);
     mat4_delete(trans_mat);
     free(image_buffer);
+}
+
+//Set the dimensions of the screen
+void set_screen(double bounds[]) {
+    sx_min = bounds[0];
+    sy_min = bounds[1];
+    sx_max = bounds[2];
+    sy_max = bounds[3];
+}
+
+//Set the dimesions of the buffer
+void set_pixels(int dims[]) {
+    p_width = dims[0];
+    p_height = dims[1];
+
+    image_buffer = (unsigned char ***)calloc(p_height, sizeof(char **));
+    int i, j;
+    for (i = 0; i < p_width; i++) {
+        image_buffer[i] = (unsigned char **)calloc(p_width, sizeof(char *));
+
+        for (j = 0; j < p_width; j++) {
+            image_buffer[i][j] = (unsigned char *)calloc(3, sizeof(char));
+        }
+    }
+
+    clear_buffer();
 }
 
 //Clear the buffer
@@ -335,6 +340,21 @@ void render_eye(double ex, double ey, double ez, char color[3]) {
     triangle_mat = triangle_save;
 }
 
+//Render perspective with one eye
+void render_perspective_cyclops(double eye[]) {
+    char color[3] = {255, 255, 255};
+    render_eye(eye[0], eye[1], eye[2], color);
+}
+
+//Render in perspective with two eyes
+void render_perspective_stereo(double eyes[]) {
+    char c1[3] = {255, 0, 0};
+    char c2[3] = {0, 200, 200};
+
+    render_eye(eyes[0], eyes[1], eyes[2], c1);
+    render_eye(eyes[3], eyes[4], eyes[5], c2);
+}
+
 //Calculate the cross product
 void cross_product(double u[3], double v[3], double r[]) {
     r[0] = u[1] * v[2] - u[2] * v[1];
@@ -386,7 +406,16 @@ void draw_line(int x0, int y0, int x1, int y1) {
     }
 }
 
-// Draw a box
+//Draw a line
+void add_line(double points[]) {
+    double col1[4] = {points[0], points[1], points[2], 1.0};
+    double col2[4] = {points[3], points[4], points[5], 1.0};
+
+    mat4_add_column(triangle_mat, col1);
+    mat4_add_column(triangle_mat, col2);
+}
+
+//Draw a box
 void add_box(double sx, double sy, double sz, double rx, double ry, double rz, double mx, double my, double mz) {
     Mat4 *l_triangles = mat4_create(0);
     Mat4 *l_trans = mat4_create_identity();
